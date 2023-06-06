@@ -1,4 +1,5 @@
-
+# you can run the application directly from Github by runing this link at R Console
+# shiny::runGitHub(repo =  "ganapap1/Exploration_Cleansing",username =  "ganapap1")
 
 ##############################################################################
 # Loading Required Liabitlies
@@ -244,7 +245,7 @@ server <- function(input, output, session) {
   ###################################################################
   #  Reactive values are declared here 
   ###################################################################
-  vmy <- reactiveValues(mydata=NULL,data_1=NULL)
+  vmy <- reactiveValues(mydata=NULL,data_1=NULL,upload_state= NULL)
   
   ###################################################################
   # Data Upload
@@ -267,16 +268,13 @@ server <- function(input, output, session) {
                  tabPanel(
                    title = 'Data Upload',
                    br(),
-                   br(),
                    fileInput("file",
                              label = "Select: csv,txt, xls, xlsx, rds ",
                              multiple = FALSE,
                              accept = c("text/csv/txt/Excel",
                                         "text/comma-separated-values,text/plain/excel",
-                                        ".csv",".txt",".xls",".xlsx",".rds")),
-                   
-                   # Horizontal line ----
-                   #tags$hr(),
+                                       ".csv",".txt",".xls",".xlsx",".rds")),
+                    div(style = "margin-top:-10px"),
                    column(
                      width = 5,
                      offset = 1,
@@ -299,7 +297,7 @@ server <- function(input, output, session) {
                      align = "left",
                      fluidRow(
                        br(),
-                       br(),
+                       br(),br(),
                        # Input: Select quotes ----
                        radioButtons("quote", "Quote",
                                     choices = c(None = "",
@@ -308,17 +306,15 @@ server <- function(input, output, session) {
                                     selected = '"')
                      )
                    ),
-                   
-                   tags$hr(),
+                   div(style = "margin-top:-10px"),
+                   #tags$hr(),
                    column(
                      width = 12,
                      align="center",
-                     useShinyjs(),
-                     br(),
-                     actionButton(inputId = "mgetfileclick",label = "Get Data!",style = styleButtonBlue(xheight = '35px',xwidth = '200px')),
-                     textOutput(outputId = 'mfileimportmsg'),
-                     br(),
-                     actionButton(inputId = 'mOverviewBtn',label = "Overview!",style = styleButtonBlue(xheight = '45px',xwidth = '130px'))
+                     actionButton(inputId = "mgetfileclick",label = "Get Data!",style = styleButtonBlue(xheight = '30px',xwidth = '200px')),
+                     actionButton(inputId = 'mreset',label = 'Enable Next File Selection',style = styleButtonBlue(xheight = '30px',xwidth = '200px',xcolor = '#009900')),
+                     actionButton(inputId = 'mOverviewBtn',label = "App Overview!",style = styleButtonBlue(xheight = '30px',xwidth = '130px')),
+                     HTML(paste('<h6>',"Once you Click 'Get Data' button, selected file will be imported and further file selection will be diabled.  If you need to merge files, you have to click on 'Enable Next file selection'",'<h6>')),
                      
                    )
                  ), #tabpanel closure
@@ -429,34 +425,59 @@ server <- function(input, output, session) {
     )
   })
   
+  
+  # New function created on 6th June 2023 file_input():  where you got: https://stackoverflow.com/questions/44203728/how-to-reset-a-value-of-fileinput-in-shiny#:~:text=Add%20a%20comment-,2%20Answers,-Sorted%20by%3A
+  
+  observeEvent(input$file, {
+    vmy$upload_state <- 'Now upload'
+  })
+  
+
+  file_input <- reactive({
+    if (is.null(vmy$upload_state)) {
+      return(NULL)
+    } else if (vmy$upload_state == 'Now upload') {
+      return(input$file)
+    } else if (vmy$upload_state == 'uploaded') {
+      return(NULL)
+    }
+  })
+  
+  
   library(sqldf)
   observeEvent(input$mgetfileclick,{
-    if (length(input$file)==0){
-      shinyalert("Oops!", "Hi first browse and select dataset ...!", type = "error")
+    if (length(file_input())==0){
+      shinyalert("Oops!", "Hi either file already Uploaded or you haven't selected the file..!", type = "error")
       return()
     }
+    
+    if (vmy$upload_state == 'uploaded'){
+      shinyalert("Oops!", "Hi Already Uploaded...!", type = "error")
+      return()
+    }
+    
     enable("mshowtableBtn")
     enable("mFixDependentVarBtn")
     
-    
+
     #### file import code start
-    ext <- tools::file_ext(input$file$name)
-    
+    ext <- tools::file_ext(file_input()$name)
+
     if (ext != "csv" & ext !='rds' & ext != 'xlsx' & ext != 'xlsx'){
       shinyalert("Oops!", "valid files are csv, txt, excel and rds only", type = "error")
       return()
     }
     else if (ext == "rds"){
-      vmy$mydata <- as.data.frame(readRDS(input$file$datapath))  # got from https://readxl.tidyverse.org/
+      mydata <- as.data.frame(readRDS(file_input()$datapath))  # got from https://readxl.tidyverse.org/
     }
     else if (ext == "xls" || ext == 'xlsx'){
-      vmy$mydata <- as.data.frame(readxl::read_excel(input$file$datapath))  # got from https://readxl.tidyverse.org/
+      mydata <- as.data.frame(readxl::read_excel(file_input()$datapath))  # got from https://readxl.tidyverse.org/
     }
     else if (ext == "csv" || ext == 'txt'){
       tryCatch({            #avoid rscript showing error initially before execution,Skipping error in for-loop ::I got from this site; Thank you:https://stackoverflow.com/questions/14748557/skipping-error-in-for-loop
         
-        vmy$mydata <- as.data.frame(
-          read.csv(input$file$datapath,
+        mydata <- as.data.frame(
+          read.csv(file_input()$datapath,
                    header = input$header,
                    sep = input$sep,
                    quote = input$quote,
@@ -468,17 +489,25 @@ server <- function(input, output, session) {
         stop(safeError(e))})
     }
     
+    if (is.null(vmy$mydata)){
+      alert("vmy$mydata table is getting created...!")
+      vmy$mydata <- mydata
+    }else{
+      alert("This dataset will be merged to vmy$mydata. New columns will be created if do not exist")
+      vmy$mydata <- dplyr::bind_rows(vmy$mydata,mydata)
+    }
+    
+    
+    
     #### create datatype df to use in cleansing phase
     fncreatedftype()
     fnCreateRenamedf()
-    output$mfileimportmsg<-renderText({
-      "Done - uploaded"
-    })
-    
-    disable("mgetfileclick")
-    
-    output$mradioreplyMonthUI <- renderUI({
-      if (length(input$file)==0){
+
+    disable(id = 'file', selector = "input[type='text']")
+    vmy$upload_state <- 'uploaded'
+
+     output$mradioreplyMonthUI <- renderUI({
+      if (length(file_input())==0){
         return()
       }
       options <- sort(unique(month(vmy$mydata$Report_Dt)))
@@ -495,7 +524,12 @@ server <- function(input, output, session) {
     })
   })
   
-  
+
+
+  observeEvent(input$mreset,{
+    enable(id = 'mgetfileclick')
+    enable(id = 'file', selector = "input[type='text']")
+  })
   
   ################### Upload data End #################################
   
@@ -1634,12 +1668,10 @@ overflow-y:none; height: 75px;width:600px; background: #ffffcd;}")),
     
     temp <- dplyr::select_if(vmy$mydata,is.numeric)
   
-    mfilter <<-c(input$mradioPlotVarable)
     # library(psych)
     
     mcolnames <- colnames(temp) %ni% c(input$mradioPlotVarable)
 
-    gptemp <<- temp[,mcolnames]
      # GGally::ggpairs(temp[,mcolnames])
     
       psych::pairs.panels(temp[,mcolnames],
